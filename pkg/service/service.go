@@ -972,15 +972,26 @@ func (s *Service) restoreServicesLocked() error {
 		// Recalculate Maglev lookup tables if the maps were removed due to
 		// the changed M param.
 		ipv6 := newSVC.frontend.IsIPv6()
+		recreated := s.lbmap.IsMaglevLookupTableRecreated(ipv6)
+		if svc.NatPolicy == lb.SVCNatPolicyNat46 {
+			recreated = recreated || s.lbmap.IsMaglevLookupTableRecreated(!ipv6)
+		}
 		if option.Config.DatapathMode == datapathOpt.DatapathModeLBOnly &&
-			newSVC.useMaglev() && s.lbmap.IsMaglevLookupTableRecreated(ipv6) {
+			newSVC.useMaglev() && recreated {
 
 			backends := make(map[string]lb.BackendID, len(newSVC.backends))
 			for _, b := range newSVC.backends {
 				backends[b.String()] = b.ID
 			}
-			if err := s.lbmap.UpsertMaglevLookupTable(uint16(newSVC.frontend.ID), backends, ipv6); err != nil {
+			if err := s.lbmap.UpsertMaglevLookupTable(uint16(newSVC.frontend.ID), backends,
+				ipv6 || svc.NatPolicy == lb.SVCNatPolicyNat46); err != nil {
 				return err
+			}
+			if svc.NatPolicy == lb.SVCNatPolicyNat46 {
+				if err := s.lbmap.UpsertMaglevLookupTable(uint16(newSVC.frontend.ID), backends,
+					false); err != nil {
+					return err
+				}
 			}
 		}
 
